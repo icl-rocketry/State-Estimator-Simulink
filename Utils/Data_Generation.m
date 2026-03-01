@@ -7,7 +7,16 @@ clear; clc;
 % -------------------------------
 % Time
 % --------------------------------
-dt = 0.01;        % 100 Hz
+model_update_rate = 500; % Hz
+GPS_update_rate   = 10;  % Hz
+Baro_update_rate  = 10; % Hz
+Accel_update_rate = 10; % Hz
+
+dt = 1 / model_update_rate;        % 1/f
+GPS_dt = 1 / GPS_update_rate;   % new GPS info/ x runs of model update
+Baro_dt = 1 / Baro_update_rate;   % new GPS info/ x runs of model update
+Accel_dt = 1 / Accel_update_rate;   % new GPS info/ x runs of model update
+
 T  = 60;          % seconds
 t  = (0:dt:T)';
 N  = length(t);
@@ -51,66 +60,69 @@ p_true = cumtrapz(t, v_true);   % [x_N, y_E, z_D]
 % SENSOR MODELS
 % ============================================================
 
+% Indices for each sensor rate (assumes exact integer ratio)
+k_gps   = round(GPS_dt   / dt);     % 0.1 / 0.002 = 50
+k_baro  = round(Baro_dt  / dt);     % 0.004 / 0.002 = 2
+k_accel = round(Accel_dt / dt);     % 0.004 / 0.002 = 2
+
+idx_gps   = 1:k_gps:N;
+idx_baro  = 1:k_baro:N;
+idx_accel = 1:k_accel:N;
+
+t_gps   = t(idx_gps);
+t_baro  = t(idx_baro);
+t_accel = t(idx_accel);
+
+assert(abs(k_gps*dt - GPS_dt) < 1e-12,  'GPS rate not integer multiple of base dt');
+assert(abs(k_baro*dt - Baro_dt) < 1e-12,'Baro rate not integer multiple of base dt');
+assert(abs(k_accel*dt - Accel_dt) < 1e-12,'Accel rate not integer multiple of base dt');
+
 % -------------------------------
 % Accelerometer (Low-G)
 % --------------------------------
-sigma_accel = 0.05;   % m/s^2
-accel_meas  = a_true + sigma_accel * randn(N,3);
-accel_meas2  = a_true + sigma_accel * randn(N,3);
+sigma_accel = 0.05; % m/s^2
 
-accel_ts = timeseries(accel_meas, t);
+a_true_accel   = a_true(idx_accel, :);                          % Mx3
+accel_meas     = a_true_accel + sigma_accel*randn(numel(idx_accel),3);
+
+accel_ts = timeseries(accel_meas, t_accel);
 accel_ts.Name = 'accel_NED';
-
-accel_ts2 = timeseries(accel_meas2, t);
-accel_ts2.Name = 'accel_NED2';
 
 % -------------------------------
 % Barometer (Down position only)
 % --------------------------------
-sigma_baro = 1.0;     % m
-baro_meas  = p_true(:,3) + sigma_baro * randn(N,1);
+sigma_baro = 1.0; % m
 
-baro_ts = timeseries(baro_meas, t);
+pz_true_baro = p_true(idx_baro, 3);                             % Mx1 (Down)
+baro_meas    = pz_true_baro + sigma_baro*randn(numel(idx_baro),1);
+
+baro_ts = timeseries(baro_meas, t_baro);
 baro_ts.Name = 'baro_pz';
 
 % -------------------------------
 % GPS (LLA + NED velocity)
 % --------------------------------
-sigma_gps_pos = 1.5;     % m
-sigma_gps_vel = 0.1;     % m/s
+sigma_gps_pos = 1.5; % m
+sigma_gps_vel = 0.1; % m/s
 
-% Noisy NED position
-p_gps = p_true + sigma_gps_pos * randn(N,3);
+% Noisy NED position and velocity sampled at GPS instants
+p_gps = p_true(idx_gps,:) + sigma_gps_pos*randn(numel(idx_gps),3);
+v_gps = v_true(idx_gps,:) + sigma_gps_vel*randn(numel(idx_gps),3);
 
-% Convert to LLA
+% Convert to LLA at GPS instants
 lat_gps = lat0 + p_gps(:,1) / 111320;
 lon_gps = lon0 + p_gps(:,2) ./ (111320 * cosd(lat0));
-h_gps   = h0 - p_gps(:,3);
+h_gps   = h0  - p_gps(:,3);
 
-% Noisy velocity
-v_gps = v_true + sigma_gps_vel * randn(N,3);
+gps_meas = [lat_gps, lon_gps, h_gps, v_gps(:,1), v_gps(:,2), v_gps(:,3)]; % Mx6
 
-gps_meas = [ ...
-    lat_gps, ...
-    lon_gps, ...
-    h_gps, ...
-    v_gps(:,1), ...
-    v_gps(:,2), ...
-    v_gps(:,3)
-];
-
-gps_ts = timeseries(gps_meas, t);
+gps_ts = timeseries(gps_meas, t_gps);
 gps_ts.Name = 'gps_LLA_NEDvel';
 
-% -------------------------------
-% Save
-% --------------------------------
-save('synthetic_sensor_data_3D.mat', ...
-     'accel_ts', ...
-     'baro_ts', ...
-     'gps_ts');
-
-fprintf('3D synthetic sensor data generated.\n');
+fprintf("Base samples:  %d at %.1f Hz\n", N, model_update_rate);
+fprintf("Accel samples: %d at %.1f Hz\n", accel_ts.Length, Accel_update_rate);
+fprintf("Baro samples:  %d at %.1f Hz\n", baro_ts.Length,  Baro_update_rate);
+fprintf("GPS samples:   %d at %.1f Hz\n", gps_ts.Length,   GPS_update_rate);
 
 % ============================================================
 %  RUN SIMULINK + PLOT RESULTS
@@ -169,17 +181,17 @@ a_est = x_est(:,7:9);
 %% -------------------------------
 % Plot: Position
 % -------------------------------
-figure;
+figure(1);
 plot(t_est, p_true_i(:,1), t_est, p_est(:,1)); grid on;
 xlabel('Time (s)'); ylabel('North position (m)');
 legend('True','Estimated');
 
-figure;
+figure(2);
 plot(t_est, p_true_i(:,2), t_est, p_est(:,2)); grid on;
 xlabel('Time (s)'); ylabel('East position (m)');
 legend('True','Estimated');
 
-figure;
+figure(3);
 plot(t_est, p_true_i(:,3), t_est, p_est(:,3)); grid on;
 xlabel('Time (s)'); ylabel('Down position (m)');
 legend('True','Estimated');
@@ -187,17 +199,17 @@ legend('True','Estimated');
 %% -------------------------------
 % Plot: Velocity
 % -------------------------------
-figure;
+figure(4);
 plot(t_est, v_true_i(:,1), t_est, v_est(:,1)); grid on;
 xlabel('Time (s)'); ylabel('v_N (m/s)');
 legend('True','Estimated');
 
-figure;
+figure(5);
 plot(t_est, v_true_i(:,2), t_est, v_est(:,2)); grid on;
 xlabel('Time (s)'); ylabel('v_E (m/s)');
 legend('True','Estimated');
 
-figure;
+figure(6);
 plot(t_est, v_true_i(:,3), t_est, v_est(:,3)); grid on;
 xlabel('Time (s)'); ylabel('v_D (m/s)');
 legend('True','Estimated');
@@ -205,17 +217,17 @@ legend('True','Estimated');
 %% -------------------------------
 % Plot: Acceleration
 % -------------------------------
-figure;
+figure(7);
 plot(t_est, a_true_i(:,1), t_est, a_est(:,1)); grid on;
 xlabel('Time (s)'); ylabel('a_N (m/s^2)');
 legend('True','Estimated');
 
-figure;
+figure(8);
 plot(t_est, a_true_i(:,2), t_est, a_est(:,2)); grid on;
 xlabel('Time (s)'); ylabel('a_E (m/s^2)');
 legend('True','Estimated');
 
-figure;
+figure(9);
 plot(t_est, a_true_i(:,3), t_est, a_est(:,3)); grid on;
 xlabel('Time (s)'); ylabel('a_D (m/s^2)');
 legend('True','Estimated');
