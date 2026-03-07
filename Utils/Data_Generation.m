@@ -59,58 +59,115 @@ v_true(:,2) = v_true(:,2);    % 2 m/s East
 p_true = cumtrapz(t, v_true);   % [x_N, y_E, z_D]
 
 % ============================================================
-% TRUE ATTITUDE + TRUE GYRO (physically consistent with a_true pulses)
-% Assumption: body x-axis aligns with acceleration direction; roll=0.
-% NED inertial frame, body rates p,q,r in rad/s.
+% TRUE ATTITUDE + TRUE GYRO
+% Robust against no-motion / empty-find / NaN propagation
 % ============================================================
 
-eps_a = 1e-4;                    % threshold for "no accel"
-tau_att = 0.25;                  % attitude response time constant (s) - tune
-alpha = dt / (tau_att + dt);     % 1st order smoothing gain
+eps_a = 1e-4;
+tau_att = 0.25;
+alpha = dt / (tau_att + dt);
 
-a_mag = vecnorm(a_true, 2, 2);   % Nx1
+% Ensure column time vector and consistent length
+t = t(:);
+N = length(t);
+
+% Magnitude of acceleration
+a_mag = vecnorm(a_true, 2, 2);
+
+% Unit acceleration direction
 u = zeros(N,3);
-idx_move = a_mag > eps_a;
+idx_move = isfinite(a_mag) & (a_mag > eps_a);
+
 u(idx_move,:) = a_true(idx_move,:) ./ a_mag(idx_move);
 
-% Desired yaw/pitch so that body x-axis points along u (roll=0)
-% With roll=0, body x in NED is: [cos(theta)cos(psi), cos(theta)sin(psi), -sin(theta)]
-% so: psi = atan2(uE,uN), theta = -asin(uD)
-yaw_des   = zeros(N,1);
-pitch_des = zeros(N,1);
+% Desired yaw/pitch
+yaw_des   = NaN(N,1);
+pitch_des = NaN(N,1);
 
 yaw_des(idx_move)   = atan2(u(idx_move,2), u(idx_move,1));
-pitch_des(idx_move) = -asin(max(-1, min(1, u(idx_move,3)))); % clamp
 
-% Hold last attitude when no acceleration (so we don't snap to 0)
-yaw_des   = fillmissing(yaw_des,   'previous');
-pitch_des = fillmissing(pitch_des, 'previous');
-yaw_des(1)   = yaw_des(find(idx_move,1,'first'));   if isnan(yaw_des(1)), yaw_des(1)=0; end
-pitch_des(1) = pitch_des(find(idx_move,1,'first')); if isnan(pitch_des(1)), pitch_des(1)=0; end
+u3 = u(:,3);
+u3 = max(-1, min(1, u3));    % clamp
+pitch_des(idx_move) = -asin(u3(idx_move));
 
-% Unwrap yaw to avoid 2*pi jumps before smoothing
-yaw_des = unwrap(yaw_des);
+% If no motion ever occurs, default to zero attitude
+if any(idx_move)
+    first_idx = find(idx_move,1,'first');
 
-% Smooth (1st-order low-pass) to make rates finite/physical
-yaw   = zeros(N,1);   pitch = zeros(N,1);
-yaw(1) = yaw_des(1);  pitch(1) = pitch_des(1);
-for k = 2:N
-    yaw(k)   = yaw(k-1)   + alpha*(yaw_des(k)   - yaw(k-1));
-    pitch(k) = pitch(k-1) + alpha*(pitch_des(k) - pitch(k-1));
+    yaw_des   = fillmissing(yaw_des,   'previous');
+    pitch_des = fillmissing(pitch_des, 'previous');
+
+    yaw_des(1:first_idx-1)   = yaw_des(first_idx);
+    pitch_des(1:first_idx-1) = pitch_des(first_idx);
+else
+    yaw_des(:) = 0;
+    pitch_des(:) = 0;
 end
 
-% Euler angle derivatives (finite difference)
-yawdot   = [diff(yaw)/dt; 0];
+% Unwrap yaw
+yaw_des = unwrap(yaw_des);
+
+% Roll excitation
+roll_amp_deg = 20;
+roll_freq_hz = 0.15;
+roll_des = deg2rad(roll_amp_deg) * sin(2*pi*roll_freq_hz*t);
+
+% Smooth
+roll  = zeros(N,1);
+pitch = zeros(N,1);
+yaw   = zeros(N,1);
+
+roll(1)  = roll_des(1);
+pitch(1) = pitch_des(1);
+yaw(1)   = yaw_des(1);
+
+for k = 2:N
+    roll(k)  = roll(k-1)  + alpha*(roll_des(k)  - roll(k-1));
+    pitch(k) = pitch(k-1) + alpha*(pitch_des(k) - pitch(k-1));
+    yaw(k)   = yaw(k-1)   + alpha*(yaw_des(k)   - yaw(k-1));
+end
+
+% Derivatives
+rolldot  = [diff(roll)/dt; 0];
 pitchdot = [diff(pitch)/dt; 0];
+yawdot   = [diff(yaw)/dt; 0];
 
-% Convert to body rates for roll=0:
-% p = -sin(theta)*psidot, q = thetadot, r = cos(theta)*psidot
-wx_true = -sin(pitch).*yawdot;
-wy_true = pitchdot;
-wz_true =  cos(pitch).*yawdot;
+% Full Euler-rate to body-rate mapping
+wx_true = rolldot - sin(pitch).*yawdot;
+wy_true = cos(roll).*pitchdot + sin(roll).*cos(pitch).*yawdot;
+wz_true = -sin(roll).*pitchdot + cos(roll).*cos(pitch).*yawdot;
 
-omega_true = [wx_true, wy_true, wz_true];  % Nx3 rad/s
+omega_true = [wx_true, wy_true, wz_true];
 
+% Final cleanup guard
+omega_true(~isfinite(omega_true)) = 0;
+%% -------------------------------
+% Convert True Euler Angles -> Quaternion
+% scalar-first convention: [q0 q1 q2 q3]
+% -------------------------------
+q_true = zeros(N,4);
+
+for k = 1:N
+
+    cr = cos(roll(k)/2);
+    sr = sin(roll(k)/2);
+
+    cp = cos(pitch(k)/2);
+    sp = sin(pitch(k)/2);
+
+    cy = cos(yaw(k)/2);
+    sy = sin(yaw(k)/2);
+
+    q0 = cr*cp*cy + sr*sp*sy;
+    q1 = sr*cp*cy - cr*sp*sy;
+    q2 = cr*sp*cy + sr*cp*sy;
+    q3 = cr*cp*sy - sr*sp*cy;
+
+    q_true(k,:) = [q0 q1 q2 q3];
+end
+
+% Optional but good practice: normalize
+q_true = q_true ./ vecnorm(q_true,2,2);
 % ============================================================
 % SENSOR MODELS
 % ============================================================
@@ -249,11 +306,12 @@ a_true_i = interp1(t, a_true, t_est, 'linear', 'extrap');
 p_est = x_est(:,1:3);
 v_est = x_est(:,4:6);
 a_est = x_est(:,7:9);
-euler_est = x_est(:,10:12);
+quart_est = x_est(:,10:13);
 
-roll_est  = euler_est(:,1);
-pitch_est = euler_est(:,2);
-yaw_est   = euler_est(:,3);
+q0_est  = quart_est(:,1);
+q1_est = quart_est(:,2);
+q2_est   = quart_est(:,3);
+q3_est   = quart_est(:,4);
 %% -------------------------------
 % Plot formatting defaults
 % -------------------------------
@@ -360,50 +418,59 @@ legend('True','Estimated','Location','best');
 set(gca,'FontSize',fs);
 
 %% -------------------------------
-% Plot: Euler Angles
+% Plot: Quaternions
 % -------------------------------
 
-% True Euler angles from your model
-roll_true  = zeros(N,1);
-pitch_true = pitch;
-yaw_true   = yaw;
+% True quaternion components from your model
+% Adjust these names to match your workspace variables
+q0_true = q_true(:,1);
+q1_true = q_true(:,2);
+q2_true = q_true(:,3);
+q3_true = q_true(:,4);
 
-% Interpolate true angles onto estimator time base
-roll_true_i  = interp1(t, roll_true,  t_est, 'linear', 'extrap');
-pitch_true_i = interp1(t, pitch_true, t_est, 'linear', 'extrap');
-yaw_true_i   = interp1(t, yaw_true,   t_est, 'linear', 'extrap');
-
-% Unwrap yaw for cleaner plotting
-yaw_est_u  = unwrap(yaw_est);
-yaw_true_u = unwrap(yaw_true_i);
+% Interpolate true quaternion onto estimator time base
+q0_true_i = interp1(t, q0_true, t_est, 'linear', 'extrap');
+q1_true_i = interp1(t, q1_true, t_est, 'linear', 'extrap');
+q2_true_i = interp1(t, q2_true, t_est, 'linear', 'extrap');
+q3_true_i = interp1(t, q3_true, t_est, 'linear', 'extrap');
 
 figure(10); clf;
-plot(t_est, rad2deg(roll_true_i), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(roll_est), 'r--', 'LineWidth', lw);
+plot(t_est, q0_true_i, 'b', 'LineWidth', lw); hold on;
+plot(t_est, q0_est, 'r--', 'LineWidth', lw);
 grid on; box on;
 xlabel('Time (s)', 'FontSize', fs);
-ylabel('Roll (deg)', 'FontSize', fs);
-title('Roll: True vs Estimated', 'FontSize', fs+1);
+ylabel('q_0', 'FontSize', fs);
+title('Quaternion q_0: True vs Estimated', 'FontSize', fs+1);
 legend('True','Estimated','Location','best');
 set(gca,'FontSize',fs);
 
 figure(11); clf;
-plot(t_est, rad2deg(pitch_true_i), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(pitch_est), 'r--', 'LineWidth', lw);
+plot(t_est, q1_true_i, 'b', 'LineWidth', lw); hold on;
+plot(t_est, q1_est, 'r--', 'LineWidth', lw);
 grid on; box on;
 xlabel('Time (s)', 'FontSize', fs);
-ylabel('Pitch (deg)', 'FontSize', fs);
-title('Pitch: True vs Estimated', 'FontSize', fs+1);
+ylabel('q_1', 'FontSize', fs);
+title('Quaternion q_1: True vs Estimated', 'FontSize', fs+1);
 legend('True','Estimated','Location','best');
 set(gca,'FontSize',fs);
 
 figure(12); clf;
-plot(t_est, rad2deg(yaw_true_u), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(yaw_est_u), 'r--', 'LineWidth', lw);
+plot(t_est, q2_true_i, 'b', 'LineWidth', lw); hold on;
+plot(t_est, q2_est, 'r--', 'LineWidth', lw);
 grid on; box on;
 xlabel('Time (s)', 'FontSize', fs);
-ylabel('Yaw (deg)', 'FontSize', fs);
-title('Yaw: True vs Estimated', 'FontSize', fs+1);
+ylabel('q_2', 'FontSize', fs);
+title('Quaternion q_2: True vs Estimated', 'FontSize', fs+1);
+legend('True','Estimated','Location','best');
+set(gca,'FontSize',fs);
+
+figure(13); clf;
+plot(t_est, q3_true_i, 'b', 'LineWidth', lw); hold on;
+plot(t_est, q3_est, 'r--', 'LineWidth', lw);
+grid on; box on;
+xlabel('Time (s)', 'FontSize', fs);
+ylabel('q_3', 'FontSize', fs);
+title('Quaternion q_3: True vs Estimated', 'FontSize', fs+1);
 legend('True','Estimated','Location','best');
 set(gca,'FontSize',fs);
 
