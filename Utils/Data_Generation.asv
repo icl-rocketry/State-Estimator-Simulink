@@ -255,116 +255,73 @@ roll_est  = euler_est(:,1);
 pitch_est = euler_est(:,2);
 yaw_est   = euler_est(:,3);
 %% -------------------------------
-% Plot formatting defaults
-% -------------------------------
-lw = 1.8;
-fs = 12;
-
-%% -------------------------------
 % Plot: Position
 % -------------------------------
-figure(1); clf;
-plot(t_est, p_true_i(:,1), 'b', 'LineWidth', lw); hold on;
-plot(t_est, p_est(:,1), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('North Position (m)', 'FontSize', fs);
-title('North Position: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(1);
+plot(t_est, p_true_i(:,1), 'b', 'LineWidth', 1.5t_est, p_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('North position (m)');
+legend('True','Estimated');
 
-figure(2); clf;
-plot(t_est, p_true_i(:,2), 'b', 'LineWidth', lw); hold on;
-plot(t_est, p_est(:,2), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('East Position (m)', 'FontSize', fs);
-title('East Position: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(2);
+plot(t_est, p_true_i(:,2), t_est, p_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('East position (m)');
+legend('True','Estimated');
 
-figure(3); clf;
-plot(t_est, p_true_i(:,3), 'b', 'LineWidth', lw); hold on;
-plot(t_est, p_est(:,3), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('Down Position (m)', 'FontSize', fs);
-title('Down Position: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(3);
+plot(t_est, p_true_i(:,3), t_est, p_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('Down position (m)');
+legend('True','Estimated');
 
 %% -------------------------------
 % Plot: Velocity
 % -------------------------------
-figure(4); clf;
-plot(t_est, v_true_i(:,1), 'b', 'LineWidth', lw); hold on;
-plot(t_est, v_est(:,1), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('v_N (m/s)', 'FontSize', fs);
-title('North Velocity: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(4);
+plot(t_est, v_true_i(:,1), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('v_N (m/s)');
+legend('True','Estimated');
 
-figure(5); clf;
-plot(t_est, v_true_i(:,2), 'b', 'LineWidth', lw); hold on;
-plot(t_est, v_est(:,2), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('v_E (m/s)', 'FontSize', fs);
-title('East Velocity: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(5);
+plot(t_est, v_true_i(:,2), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('v_E (m/s)');
+legend('True','Estimated');
 
-figure(6); clf;
-plot(t_est, v_true_i(:,3), 'b', 'LineWidth', lw); hold on;
-plot(t_est, v_est(:,3), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('v_D (m/s)', 'FontSize', fs);
-title('Down Velocity: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(6);
+plot(t_est, v_true_i(:,3), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('v_D (m/s)');
+legend('True','Estimated');
 
 %% -------------------------------
 % Plot: Acceleration
 % -------------------------------
-figure(7); clf;
-plot(t_est, a_true_i(:,1), 'b', 'LineWidth', lw); hold on;
-plot(t_est, a_est(:,1), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('a_N (m/s^2)', 'FontSize', fs);
-title('North Acceleration: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(7);
+plot(t_est, a_true_i(:,1), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('a_N (m/s^2)');
+legend('True','Estimated');
 
-figure(8); clf;
-plot(t_est, a_true_i(:,2), 'b', 'LineWidth', lw); hold on;
-plot(t_est, a_est(:,2), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('a_E (m/s^2)', 'FontSize', fs);
-title('East Acceleration: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(8);
+plot(t_est, a_true_i(:,2), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('a_E (m/s^2)');
+legend('True','Estimated');
 
-figure(9); clf;
-plot(t_est, a_true_i(:,3), 'b', 'LineWidth', lw); hold on;
-plot(t_est, a_est(:,3), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('a_D (m/s^2)', 'FontSize', fs);
-title('Down Acceleration: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+figure(9);
+plot(t_est, a_true_i(:,3), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('a_D (m/s^2)');
+legend('True','Estimated');
 
 %% -------------------------------
 % Plot: Euler Angles
 % -------------------------------
 
+% ----------------------------------
 % True Euler angles from your model
-roll_true  = zeros(N,1);
+% ----------------------------------
+roll_true  = zeros(N,1);   % by assumption in your code
 pitch_true = pitch;
 yaw_true   = yaw;
 
@@ -373,38 +330,43 @@ roll_true_i  = interp1(t, roll_true,  t_est, 'linear', 'extrap');
 pitch_true_i = interp1(t, pitch_true, t_est, 'linear', 'extrap');
 yaw_true_i   = interp1(t, yaw_true,   t_est, 'linear', 'extrap');
 
-% Unwrap yaw for cleaner plotting
-yaw_est_u  = unwrap(yaw_est);
-yaw_true_u = unwrap(yaw_true_i);
+% Optional: unwrap estimated yaw too before plotting, if it jumps at +-pi
+yaw_est_u = unwrap(yaw_est);
 
+% ----------------------------------
+% Roll
+% ----------------------------------
 figure(10); clf;
-plot(t_est, rad2deg(roll_true_i), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(roll_est), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('Roll (deg)', 'FontSize', fs);
-title('Roll: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+plot(t_est, rad2deg(roll_est), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(roll_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Roll (deg)');
+legend('Estimated', 'True');
+title('Roll: Estimated vs True');
 
+% ----------------------------------
+% Pitch
+% ----------------------------------
 figure(11); clf;
-plot(t_est, rad2deg(pitch_true_i), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(pitch_est), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('Pitch (deg)', 'FontSize', fs);
-title('Pitch: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+plot(t_est, rad2deg(pitch_est), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(pitch_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Pitch (deg)');
+legend('Estimated', 'True');
+title('Pitch: Estimated vs True');
 
+% ----------------------------------
+% Yaw
+% ----------------------------------
 figure(12); clf;
-plot(t_est, rad2deg(yaw_true_u), 'b', 'LineWidth', lw); hold on;
-plot(t_est, rad2deg(yaw_est_u), 'r--', 'LineWidth', lw);
-grid on; box on;
-xlabel('Time (s)', 'FontSize', fs);
-ylabel('Yaw (deg)', 'FontSize', fs);
-title('Yaw: True vs Estimated', 'FontSize', fs+1);
-legend('True','Estimated','Location','best');
-set(gca,'FontSize',fs);
+plot(t_est, rad2deg(yaw_est_u), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(yaw_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Yaw (deg)');
+legend('Estimated', 'True');
+title('Yaw: Estimated vs True');
 
 fprintf("Simulation complete. Plots generated.\n");
