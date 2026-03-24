@@ -1,0 +1,372 @@
+%% ============================================================
+%  3D Synthetic Sensor Data for KF Testing (NED frame)
+%% ============================================================
+close all;
+clear; clc;
+
+% -------------------------------
+% Time
+% --------------------------------
+model_update_rate = 500; % Hz
+GPS_update_rate   = 500;  % Hz
+Baro_update_rate  = 500; % Hz
+Accel_update_rate = 500; % Hz
+Gyro_update_rate = 500; % Hz
+
+dt = 1 / model_update_rate;        % 1/f
+GPS_dt = 1 / GPS_update_rate;
+Baro_dt = 1 / Baro_update_rate;
+Accel_dt = 1 / Accel_update_rate;
+Gyro_dt = 1 / Gyro_update_rate;
+
+T  = 60;          % seconds
+t  = (0:dt:T)';
+N  = length(t);
+
+% -------------------------------
+% Reference LLA
+% --------------------------------
+lat0 = 51.507351;     % deg
+lon0 = -0.127758;    % deg
+h0   = 25;            % m
+
+% -------------------------------
+% TRUE ACCELERATION (NED)
+% --------------------------------
+a_true = zeros(N,3);
+
+% North accel pulse
+a_true(t > 5 & t < 10, 1) = 0.3;
+
+% East accel pulse
+a_true(t > 20 & t < 25, 2) = -0.2;
+
+% Down accel pulse
+a_true(t > 35 & t < 40, 3) = 0.5;
+
+% -------------------------------
+% TRUE VELOCITY (NED)
+% --------------------------------
+v_true = cumtrapz(t, a_true);
+
+% Add constant cruise velocity
+v_true(:,1) = v_true(:,1);    % 5 m/s North
+v_true(:,2) = v_true(:,2);    % 2 m/s East
+
+% -------------------------------
+% TRUE POSITION (NED)
+% --------------------------------
+p_true = cumtrapz(t, v_true);   % [x_N, y_E, z_D]
+
+% ============================================================
+% TRUE ATTITUDE + TRUE GYRO (physically consistent with a_true pulses)
+% Assumption: body x-axis aligns with acceleration direction; roll=0.
+% NED inertial frame, body rates p,q,r in rad/s.
+% ============================================================
+
+eps_a = 1e-4;                    % threshold for "no accel"
+tau_att = 0.25;                  % attitude response time constant (s) - tune
+alpha = dt / (tau_att + dt);     % 1st order smoothing gain
+
+a_mag = vecnorm(a_true, 2, 2);   % Nx1
+u = zeros(N,3);
+idx_move = a_mag > eps_a;
+u(idx_move,:) = a_true(idx_move,:) ./ a_mag(idx_move);
+
+% Desired yaw/pitch so that body x-axis points along u (roll=0)
+% With roll=0, body x in NED is: [cos(theta)cos(psi), cos(theta)sin(psi), -sin(theta)]
+% so: psi = atan2(uE,uN), theta = -asin(uD)
+yaw_des   = zeros(N,1);
+pitch_des = zeros(N,1);
+
+yaw_des(idx_move)   = atan2(u(idx_move,2), u(idx_move,1));
+pitch_des(idx_move) = -asin(max(-1, min(1, u(idx_move,3)))); % clamp
+
+% Hold last attitude when no acceleration (so we don't snap to 0)
+yaw_des   = fillmissing(yaw_des,   'previous');
+pitch_des = fillmissing(pitch_des, 'previous');
+yaw_des(1)   = yaw_des(find(idx_move,1,'first'));   if isnan(yaw_des(1)), yaw_des(1)=0; end
+pitch_des(1) = pitch_des(find(idx_move,1,'first')); if isnan(pitch_des(1)), pitch_des(1)=0; end
+
+% Unwrap yaw to avoid 2*pi jumps before smoothing
+yaw_des = unwrap(yaw_des);
+
+% Smooth (1st-order low-pass) to make rates finite/physical
+yaw   = zeros(N,1);   pitch = zeros(N,1);
+yaw(1) = yaw_des(1);  pitch(1) = pitch_des(1);
+for k = 2:N
+    yaw(k)   = yaw(k-1)   + alpha*(yaw_des(k)   - yaw(k-1));
+    pitch(k) = pitch(k-1) + alpha*(pitch_des(k) - pitch(k-1));
+end
+
+% Euler angle derivatives (finite difference)
+yawdot   = [diff(yaw)/dt; 0];
+pitchdot = [diff(pitch)/dt; 0];
+
+% Convert to body rates for roll=0:
+% p = -sin(theta)*psidot, q = thetadot, r = cos(theta)*psidot
+wx_true = -sin(pitch).*yawdot;
+wy_true = pitchdot;
+wz_true =  cos(pitch).*yawdot;
+
+omega_true = [wx_true, wy_true, wz_true];  % Nx3 rad/s
+
+% ============================================================
+% SENSOR MODELS
+% ============================================================
+
+% Indices for each sensor rate (assumes exact integer ratio)
+k_gps   = round(GPS_dt   / dt);
+k_baro  = round(Baro_dt  / dt);
+k_accel = round(Accel_dt / dt);
+k_gyro  = round(Gyro_dt  / dt);
+
+idx_gps   = 1:k_gps:N;
+idx_baro  = 1:k_baro:N;
+idx_accel = 1:k_accel:N;
+idx_gyro  = 1:k_gyro:N;
+
+t_gps   = t(idx_gps);
+t_baro  = t(idx_baro);
+t_accel = t(idx_accel);
+t_gyro  = t(idx_gyro);
+
+assert(abs(k_gps*dt - GPS_dt) < 1e-12,  'GPS rate not integer multiple of base dt');
+assert(abs(k_baro*dt - Baro_dt) < 1e-12,'Baro rate not integer multiple of base dt');
+assert(abs(k_accel*dt - Accel_dt) < 1e-12,'Accel rate not integer multiple of base dt');
+assert(abs(k_gyro*dt - Gyro_dt) < 1e-12,'Gyro rate not integer multiple of base dt');
+
+% -------------------------------
+% Accelerometer (Low-G)
+% --------------------------------
+sigma_accel = 0.05; % m/s^2
+
+a_true_accel   = a_true(idx_accel, :);                          % Mx3
+accel_meas     = a_true_accel + sigma_accel*randn(numel(idx_accel),3);
+
+accel_ts = timeseries(accel_meas, t_accel);
+accel_ts.Name = 'accel_NED';
+
+% -------------------------------
+% Barometer (Down position only)
+% --------------------------------
+sigma_baro = 1.0; % m
+
+pz_true_baro = p_true(idx_baro, 3);                             % Mx1 (Down)
+baro_meas    = pz_true_baro + sigma_baro*randn(numel(idx_baro),1);
+
+baro_ts = timeseries(baro_meas, t_baro);
+baro_ts.Name = 'baro_pz';
+
+% -------------------------------
+% GPS (LLA + NED velocity)
+% --------------------------------
+sigma_gps_pos = 1.5; % m
+sigma_gps_vel = 0.1; % m/s
+
+% Noisy NED position and velocity sampled at GPS instants
+p_gps = p_true(idx_gps,:) + sigma_gps_pos*randn(numel(idx_gps),3);
+v_gps = v_true(idx_gps,:) + sigma_gps_vel*randn(numel(idx_gps),3);
+
+% Convert to LLA at GPS instants
+lat_gps = lat0 + p_gps(:,1) / 111320;
+lon_gps = lon0 + p_gps(:,2) ./ (111320 * cosd(lat0));
+h_gps   = h0  - p_gps(:,3);
+
+gps_meas = [lat_gps, lon_gps, h_gps, v_gps(:,1), v_gps(:,2), v_gps(:,3)]; % Mx6
+
+gps_ts = timeseries(gps_meas, t_gps);
+gps_ts.Name = 'gps_LLA_NEDvel';
+
+% -------------------------------
+% Gyroscope (sample true body rates + add noise)
+% --------------------------------
+sigma_gyro = 0.005; % rad/s (tune)
+
+omega_true_gyro = omega_true(idx_gyro,:);   % sample at gyro instants (here = accel instants)
+gyro_meas = omega_true_gyro + sigma_gyro*randn(numel(idx_gyro),3);
+
+gyro_ts = timeseries(gyro_meas, t_gyro);
+gyro_ts.Name = 'gyro_pqr_radps';
+
+% ============================================================
+%  DISPLAY SENSOR INFO
+% ============================================================
+fprintf("Base samples:  %d at %.1f Hz\n", N, model_update_rate);
+fprintf("Accel samples: %d at %.1f Hz\n", accel_ts.Length, Accel_update_rate);
+fprintf("Baro samples:  %d at %.1f Hz\n", baro_ts.Length,  Baro_update_rate);
+fprintf("GPS samples:   %d at %.1f Hz\n", gps_ts.Length,   GPS_update_rate);
+fprintf("Gyro samples:  %d at %.1f Hz\n", gyro_ts.Length,  Gyro_update_rate);
+
+% ============================================================
+%  RUN SIMULINK + PLOT RESULTS
+% ============================================================
+
+% --- Make sure model is on path / in current folder
+modelName = "Kalman_tester";
+
+% Optional: load sensor data into base workspace (From Workspace reads here)
+assignin('base', 'gyro_ts', gyro_ts);
+assignin('base', 'accel_ts', accel_ts);
+assignin('base', 'baro_ts',  baro_ts);
+assignin('base', 'gps_ts',   gps_ts);
+assignin('base', 'dt',       dt);   % if your model uses dt block from workspace
+
+% --- Load model
+load_system(modelName);
+
+% --- Configure stop time to match our generated data
+set_param(modelName, 'StopTime', num2str(T));
+
+% (Recommended) set solver to discrete if you want strict dt stepping
+% Uncomment if needed:
+% set_param(modelName, 'SolverType', 'Fixed-step');
+% set_param(modelName, 'Solver', 'discrete');
+% set_param(modelName, 'FixedStep', num2str(dt));
+
+% --- Run simulation
+simOut = sim(modelName);
+
+%% -------------------------------
+% Extract measured/estimated state
+% -------------------------------
+
+ts = simOut.measured_x;          % timeseries
+
+t_est = ts.Time;
+x_est = squeeze(ts.Data).';      
+
+% 12-state order:
+% x_est(k,:) = [pN pE pD vN vE vD aN aE aD roll pitch yaw]
+
+%% -------------------------------
+% Interpolate true signals to estimator timebase (for clean overlay)
+% -------------------------------
+p_true_i = interp1(t, p_true, t_est, 'linear', 'extrap');
+v_true_i = interp1(t, v_true, t_est, 'linear', 'extrap');
+a_true_i = interp1(t, a_true, t_est, 'linear', 'extrap');
+
+p_est = x_est(:,1:3);
+v_est = x_est(:,4:6);
+a_est = x_est(:,7:9);
+euler_est = x_est(:,10:12);
+
+roll_est  = euler_est(:,1);
+pitch_est = euler_est(:,2);
+yaw_est   = euler_est(:,3);
+%% -------------------------------
+% Plot: Position
+% -------------------------------
+figure(1);
+plot(t_est, p_true_i(:,1), 'b', 'LineWidth', 1.5t_est, p_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('North position (m)');
+legend('True','Estimated');
+
+figure(2);
+plot(t_est, p_true_i(:,2), t_est, p_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('East position (m)');
+legend('True','Estimated');
+
+figure(3);
+plot(t_est, p_true_i(:,3), t_est, p_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('Down position (m)');
+legend('True','Estimated');
+
+%% -------------------------------
+% Plot: Velocity
+% -------------------------------
+figure(4);
+plot(t_est, v_true_i(:,1), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('v_N (m/s)');
+legend('True','Estimated');
+
+figure(5);
+plot(t_est, v_true_i(:,2), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('v_E (m/s)');
+legend('True','Estimated');
+
+figure(6);
+plot(t_est, v_true_i(:,3), 'b', 'LineWidth', 1.5)
+plot(t_est, v_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('v_D (m/s)');
+legend('True','Estimated');
+
+%% -------------------------------
+% Plot: Acceleration
+% -------------------------------
+figure(7);
+plot(t_est, a_true_i(:,1), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,1)); grid on;
+xlabel('Time (s)'); ylabel('a_N (m/s^2)');
+legend('True','Estimated');
+
+figure(8);
+plot(t_est, a_true_i(:,2), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,2)); grid on;
+xlabel('Time (s)'); ylabel('a_E (m/s^2)');
+legend('True','Estimated');
+
+figure(9);
+plot(t_est, a_true_i(:,3), 'b', 'LineWidth', 1.5)
+plot(t_est, a_est(:,3)); grid on;
+xlabel('Time (s)'); ylabel('a_D (m/s^2)');
+legend('True','Estimated');
+
+%% -------------------------------
+% Plot: Euler Angles
+% -------------------------------
+
+% ----------------------------------
+% True Euler angles from your model
+% ----------------------------------
+roll_true  = zeros(N,1);   % by assumption in your code
+pitch_true = pitch;
+yaw_true   = yaw;
+
+% Interpolate true angles onto estimator time base
+roll_true_i  = interp1(t, roll_true,  t_est, 'linear', 'extrap');
+pitch_true_i = interp1(t, pitch_true, t_est, 'linear', 'extrap');
+yaw_true_i   = interp1(t, yaw_true,   t_est, 'linear', 'extrap');
+
+% Optional: unwrap estimated yaw too before plotting, if it jumps at +-pi
+yaw_est_u = unwrap(yaw_est);
+
+% ----------------------------------
+% Roll
+% ----------------------------------
+figure(10); clf;
+plot(t_est, rad2deg(roll_est), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(roll_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Roll (deg)');
+legend('Estimated', 'True');
+title('Roll: Estimated vs True');
+
+% ----------------------------------
+% Pitch
+% ----------------------------------
+figure(11); clf;
+plot(t_est, rad2deg(pitch_est), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(pitch_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Pitch (deg)');
+legend('Estimated', 'True');
+title('Pitch: Estimated vs True');
+
+% ----------------------------------
+% Yaw
+% ----------------------------------
+figure(12); clf;
+plot(t_est, rad2deg(yaw_est_u), 'b', 'LineWidth', 1.5); hold on;
+plot(t_est, rad2deg(yaw_true_i), 'r--', 'LineWidth', 1.5);
+grid on;
+xlabel('Time (s)');
+ylabel('Yaw (deg)');
+legend('Estimated', 'True');
+title('Yaw: Estimated vs True');
+
+fprintf("Simulation complete. Plots generated.\n");
