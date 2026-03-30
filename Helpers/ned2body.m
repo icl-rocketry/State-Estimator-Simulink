@@ -3,15 +3,15 @@ function v_b = ned2body(v_n, quat)
 %
 % Inputs:
 %   v_n   : [3x1] vector in NED or world frame
-%   quat  : [1x4] quaternion [w x y z] (body wrt NED)
+%   quat  : [4x1] quaternion vector [w x y z] (NED to body)
 % Output:
 %   v_b   : [3x1] vector in body frame
 
 arguments
     v_n (3,1) double
-    quat (1,4) double
+    quat (4,1) double
 end
 
-R_bn = quat2rotm(quat);    % Aerospace Toolbox
-v_b  = R_bn * v_n;
+R_nb = quat2rotm(quat');    % Aerospace Toolbox
+v_b  = R_nb * v_n;
 end
