@@ -12,6 +12,11 @@ arguments
     quat (4,1) double
 end
 
-R_nb = quat2rotm(quat');    % Aerospace Toolbox
-v_b  = R_nb * v_n;
+qw = quat(1); qx = quat(2); qy = quat(3); qz = quat(4);
+
+R_bn = [1 - 2*(qy^2 + qz^2),     2*(qx*qy - qz*qw),     2*(qx*qz + qy*qw);
+        2*(qx*qy + qz*qw), 1 - 2*(qx^2 + qz^2),     2*(qy*qz - qx*qw);
+        2*(qx*qz - qy*qw),     2*(qy*qz + qx*qw), 1 - 2*(qx^2 + qy^2)];
+
+v_b  = R_bn' * v_n;
 end

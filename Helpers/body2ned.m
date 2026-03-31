@@ -8,8 +8,7 @@ arguments
     quat (4,1) double
 end
 
-R_nb = quat2rotm(quat');   % NED → body
-R_bn = R_nb';              % body → NED
+R_bn = quat2rotm(quat');   % body → NED
 
 v_n = R_bn * v_b;
 
