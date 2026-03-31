@@ -12,6 +12,6 @@ arguments
     quat (4,1) double
 end
 
-R_nb = quat2rotm(quat');    % Aerospace Toolbox
-v_b  = R_nb * v_n;
+R_bn = quat2rotm(quat');    % Aerospace Toolbox
+v_b  = R_bn' * v_n;
 end
