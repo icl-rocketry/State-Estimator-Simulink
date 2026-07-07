@@ -13,4 +13,4 @@ Changes to still make
 - Varying sigma for the low-g accelerometer to taper from 1 to 4
 - Confirm all the sigma values and the LPF cutoff values for all the sensors in EKF
 - Model actuators with step functions on servos and motor
-- Controller model
+- Controller model verification and clean up
