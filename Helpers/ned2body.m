@@ -1,18 +1,16 @@
 function v_b = ned2body(v_n, quat)
-%NED2BODY Rotate a vector from NED frame to body frame using quaternion
+%NED2BODY Rotate vector from NED into body frame.
 %
-% Inputs:
-%   v_n   : [3x1] vector in NED or world frame
-%   quat  : [4x1] quaternion vector [w x y z] (NED to body)
-% Output:
-%   v_b   : [3x1] vector in body frame
+% quat: [w;x;y;z], representing BODY -> NED rotation.
+% quat must be normalised.
 
 arguments
     v_n (3,1) double
     quat (4,1) double
 end
 
-R_bn = quat2rotm(quat');   % body → NED
+R_body_to_ned = quat2rotm(quat.');
 
-v_b  = R_bn' * v_n;
+v_b = R_body_to_ned.' * v_n;
+
 end
