@@ -1,36 +1,47 @@
-function B_b = mag_sensor(orient_pos)
+function mag_output = mag_sensor(orient_pos)
+% orient_pos = [quaternion(4); position_ned(3)]
+% mag_output = [field_body_mG; field_ned_mG]
 
-% Magnetic field setup (runs before simulation)
+quaternion = orient_pos(1:4);
+position_down = orient_pos(7);
 
-height = orient_pos(7);  % or from initial condition
-lat = 51.49897;
-lon = -0.17430;
+% Location used by the existing model
+latitude_deg = 51.49897;
+longitude_deg = -0.17430;
 
-time = decyear(2025,2,24);   %
+% Assumes the NED origin has zero ellipsoidal height
+home_ellipsoid_height = 0;
+ellipsoid_height = home_ellipsoid_height - position_down;
 
-[B_w, ~, ~, ~, ~] = wrldmagm(height, lat, lon, time, '2025');
+decimal_year = decyear(2025,2,24);
 
-% Ensure column vectors
-Orientation = orient_pos(1:4);
-Orientation = Orientation(:);
-B_w = B_w(:);
+% WMM output is [North;East;Down] in nanotesla
+[field_ned,~,~,~,~] = wrldmagm( ...
+    ellipsoid_height, ...
+    latitude_deg, ...
+    longitude_deg, ...
+    decimal_year, ...
+    '2025');
 
-% Convert from nT to mG
-B_w = B_w ./ 100;
+field_ned = field_ned(:);
+
+% Convert nT to mG
+field_ned_mG = field_ned ./ 100;
 
 % Normalize quaternion
-q = Orientation / norm(Orientation);
+quaternion = quaternion(:);
+q_norm = norm(quaternion);
 
-% Quaternion inverse (for unit quaternion)
-q_inv = [q(1); -q(2:4)];
+if q_norm < 1e-12
+    quaternion = [1;0;0;0];
+else
+    quaternion = quaternion ./ q_norm;
+end
 
-% Convert vector to pure quaternion
-B_quat = [0; B_w];
+% Rotate NED magnetic field into body axes
+field_body_mG = ned2body(field_ned_mG, quaternion);
 
-% Perform rotation: B_b = q^{-1} * B_w * q, converting Earth magnetic field in NED frame to body frame
-B_rot = quatmultiply(quatmultiply(q_inv.', B_quat.'), q.'); 
-
-% Extract vector part
-B_b = [B_rot(2:4).'; B_w];
+mag_output = [field_body_mG;
+              field_ned_mG];
 
 end
